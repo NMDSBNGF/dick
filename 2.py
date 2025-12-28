@@ -1,8 +1,9 @@
 import streamlit as st
 from openai import OpenAI
+import os
 
-# ===================== 1. 自定义配置（保留原Kimi API配置，无改动） =====================
-# Kimi API 配置（Kimi为国内接口，无需代理）
+# ===================== 1. 自定义配置（保留原Kimi API配置，无改动，不添加任何proxies相关配置） =====================
+# Kimi API 配置（Kimi为国内接口，无需代理，无需配置proxies）
 KIMI_BASE_URL = "https://api.moonshot.cn/v1"
 KIMI_MODEL = "moonshot-v1-8k"  # 可选moonshot-v1-32k/moonshot-v1-128k
 
@@ -25,21 +26,26 @@ PROMPT_TEMPLATES = {
     }
 }
 
+# ===================== 2. （备用）代理配置：通过环境变量设置（符合错误提示解决方案，Kimi国内接口无需启用） =====================
+# 若后续需使用代理（如调用海外接口），取消以下注释，或在系统环境变量中配置，不直接传递给OpenAI Client
+# os.environ["HTTP_PROXY"] = "http://你的代理地址:端口"
+# os.environ["HTTPS_PROXY"] = "http://你的代理地址:端口"
 
-# ===================== 2. AI 生成核心函数（适配Streamlit，保留原校验和调用逻辑） =====================
+# ===================== 3. AI 生成核心函数（核心：确保Client初始化无proxies参数，加固错误处理） =====================
 def generate_content(kimi_api_key, template_type, param_dict):
     # 验证Kimi密钥
     if not kimi_api_key or not str(kimi_api_key).strip().startswith("sk-"):
         return "❌ 请输入有效的 Kimi API 密钥（以 sk- 开头）！"
 
-    # 初始化Kimi客户端（国内接口，无需代理）
+    # 初始化Kimi客户端（核心：完全移除proxies参数，仅保留api_key和base_url，符合库的要求）
     try:
         client = OpenAI(
             api_key=kimi_api_key.strip(),
             base_url=KIMI_BASE_URL
+            # 注意：此处不添加任何proxies参数，该参数不被OpenAI Client支持
         )
     except Exception as e:
-        return f"❌ 客户端初始化失败：{str(e)}"
+        return f"❌ 客户端初始化失败：{str(e)}（排查：是否误加了proxies参数？）"
 
     # 获取模板和参数
     try:
@@ -69,7 +75,7 @@ def generate_content(kimi_api_key, template_type, param_dict):
 
     # 调用Kimi API
     try:
-        prompt = template.format(**param_dict)
+        prompt = template.format(** param_dict)
         response = client.chat.completions.create(
             model=KIMI_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -86,8 +92,7 @@ def generate_content(kimi_api_key, template_type, param_dict):
         else:
             return f"❌ 生成失败：{error_info}"
 
-
-# ===================== 3. Streamlit 界面搭建（核心改写部分） =====================
+# ===================== 4. Streamlit 界面搭建（无改动，保持原有交互逻辑） =====================
 def main():
     # 页面配置（Streamlit 专属，设置标题和图标）
     st.set_page_config(
@@ -99,7 +104,7 @@ def main():
     # 页面标题和说明（替代 Gradio 的 gr.Markdown）
     st.title("📝 我的 AI 文字生成工具（Kimi版/Streamlit）")
     st.subheader("操作步骤：1. 输入Kimi API密钥 → 2. 选择模板 → 3. 填写参数 → 4. 生成文本")
-    st.info(f"当前使用 Kimi {KIMI_MODEL} 模型（国内接口，无需代理）")
+    st.info(f"当前使用 Kimi {KIMI_MODEL} 模型（国内接口，无需代理，请勿添加proxies参数）")
     st.divider()
 
     # 1. Kimi API 密钥输入（替代 Gradio 的 gr.Textbox，密码类型）
@@ -183,7 +188,6 @@ def main():
                 help="结果仅供参考，可自行复制修改"
             )
 
-
 # ===================== 辅助函数：为参数输入框提供占位提示 =====================
 def get_param_placeholder(param):
     placeholders = {
@@ -196,7 +200,6 @@ def get_param_placeholder(param):
         "学科": "计算机科学与技术、汉语言文学..."
     }
     return placeholders.get(param, "")
-
 
 # ===================== 运行 Streamlit 应用 =====================
 if __name__ == "__main__":
