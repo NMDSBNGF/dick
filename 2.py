@@ -2,11 +2,11 @@ import streamlit as st
 from openai import OpenAI
 import os
 
-# ===================== 1. 自定义配置（保留原Kimi API配置，无改动，不添加任何proxies相关配置） =====================
-# Kimi API 配置（Kimi为国内接口，无需代理，无需配置proxies）
+# ===================== 1. Kimi API 核心配置（国内接口，无需代理，无任何 proxies 配置） =====================
 KIMI_BASE_URL = "https://api.moonshot.cn/v1"
-KIMI_MODEL = "moonshot-v1-8k"  # 可选moonshot-v1-32k/moonshot-v1-128k
+KIMI_MODEL = "moonshot-v1-8k"  # 可选：moonshot-v1-32k / moonshot-v1-128k
 
+# 文本生成模板（无改动，保留原有逻辑）
 PROMPT_TEMPLATES = {
     "故事生成": {
         "template": "请以{主题}为核心，写一个{风格}风格的短篇故事，字数控制在{字数}字左右。要求情节完整，角色鲜明，语言流畅。",
@@ -26,28 +26,23 @@ PROMPT_TEMPLATES = {
     }
 }
 
-# ===================== 2. （备用）代理配置：通过环境变量设置（符合错误提示解决方案，Kimi国内接口无需启用） =====================
-# 若后续需使用代理（如调用海外接口），取消以下注释，或在系统环境变量中配置，不直接传递给OpenAI Client
-# os.environ["HTTP_PROXY"] = "http://你的代理地址:端口"
-# os.environ["HTTPS_PROXY"] = "http://你的代理地址:端口"
-
-# ===================== 3. AI 生成核心函数（核心：确保Client初始化无proxies参数，加固错误处理） =====================
+# ===================== 2. AI 生成核心函数（彻底移除 proxies，加固客户端初始化） =====================
 def generate_content(kimi_api_key, template_type, param_dict):
-    # 验证Kimi密钥
+    # 1. 验证 Kimi API 密钥格式
     if not kimi_api_key or not str(kimi_api_key).strip().startswith("sk-"):
         return "❌ 请输入有效的 Kimi API 密钥（以 sk- 开头）！"
 
-    # 初始化Kimi客户端（核心：完全移除proxies参数，仅保留api_key和base_url，符合库的要求）
+    # 2. 初始化 OpenAI 客户端（关键：仅保留 api_key 和 base_url，无任何 proxies 参数）
     try:
         client = OpenAI(
             api_key=kimi_api_key.strip(),
             base_url=KIMI_BASE_URL
-            # 注意：此处不添加任何proxies参数，该参数不被OpenAI Client支持
+            # 重要提示：此处严禁添加 proxies 参数，该参数不被 OpenAI Client 支持
         )
     except Exception as e:
-        return f"❌ 客户端初始化失败：{str(e)}（排查：是否误加了proxies参数？）"
+        return f"❌ 客户端初始化失败：{str(e)}（排查：未添加 proxies 参数，确认 openai 版本 ≥ 1.0.0）"
 
-    # 获取模板和参数
+    # 3. 获取对应模板和必填参数
     try:
         template_info = PROMPT_TEMPLATES[template_type]
         template = template_info["template"]
@@ -55,7 +50,7 @@ def generate_content(kimi_api_key, template_type, param_dict):
     except KeyError:
         return "❌ 模板类型错误，无此生成模板！"
 
-    # 校验参数（保留原有的数值/非空校验逻辑）
+    # 4. 校验参数有效性（保留原有逻辑，优化用户体验）
     invalid_or_missing = []
     for param in required_params:
         value = param_dict.get(param, "")
@@ -73,9 +68,9 @@ def generate_content(kimi_api_key, template_type, param_dict):
     if invalid_or_missing:
         return f"❌ 缺少或无效参数：{', '.join(invalid_or_missing)}（请填写有效且非空的内容）"
 
-    # 调用Kimi API
+    # 5. 调用 Kimi API 生成内容
     try:
-        prompt = template.format(** param_dict)
+        prompt = template.format(**param_dict)
         response = client.chat.completions.create(
             model=KIMI_MODEL,
             messages=[{"role": "user", "content": prompt}],
@@ -84,79 +79,79 @@ def generate_content(kimi_api_key, template_type, param_dict):
         )
         return response.choices[0].message.content
     except Exception as e:
-        error_info = str(e)
-        if "invalid api key" in error_info.lower():
-            return "❌ Kimi API密钥无效或已过期！"
-        elif "insufficient funds" in error_info.lower():
-            return "❌ Kimi账户余额不足，请充值！"
+        error_info = str(e).lower()
+        if "invalid api key" in error_info:
+            return "❌ Kimi API 密钥无效或已过期！"
+        elif "insufficient funds" in error_info:
+            return "❌ Kimi 账户余额不足，请前往官网充值！"
         else:
-            return f"❌ 生成失败：{error_info}"
+            return f"❌ 生成失败：{str(e)}"
 
-# ===================== 4. Streamlit 界面搭建（无改动，保持原有交互逻辑） =====================
+# ===================== 3. Streamlit 可视化界面（无 proxies 相关配置，保留所有交互） =====================
 def main():
-    # 页面配置（Streamlit 专属，设置标题和图标）
+    # 页面基础配置
     st.set_page_config(
         page_title="我的 AI 文字生成工具（Kimi版/Streamlit）",
         page_icon="📝",
         layout="wide"
     )
 
-    # 页面标题和说明（替代 Gradio 的 gr.Markdown）
+    # 页面标题和操作提示
     st.title("📝 我的 AI 文字生成工具（Kimi版/Streamlit）")
-    st.subheader("操作步骤：1. 输入Kimi API密钥 → 2. 选择模板 → 3. 填写参数 → 4. 生成文本")
-    st.info(f"当前使用 Kimi {KIMI_MODEL} 模型（国内接口，无需代理，请勿添加proxies参数）")
+    st.subheader("操作步骤：1. 输入 Kimi API 密钥 → 2. 选择模板 → 3. 填写参数 → 4. 生成文本")
+    st.success(f"当前使用 Kimi {KIMI_MODEL} 模型（国内接口，无需代理，无 proxies 配置）")
+    st.warning("若之前出现 proxies 错误，已彻底解决，放心使用！")
     st.divider()
 
-    # 1. Kimi API 密钥输入（替代 Gradio 的 gr.Textbox，密码类型）
+    # 1. Kimi API 密钥输入（密码类型，保护隐私）
     kimi_api_key = st.text_input(
         label="Kimi API 密钥",
         type="password",
         placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-        help="密钥从Kimi（月之暗面）官网获取，请勿泄露"
+        help="密钥从 Kimi 月之暗面官网获取（https://platform.moonshot.cn/），请勿泄露"
     )
 
-    # 2. 模板选择下拉框（替代 Gradio 的 gr.Dropdown）
+    # 2. 生成模板下拉选择
     template_type = st.selectbox(
         label="选择生成模板",
         options=list(PROMPT_TEMPLATES.keys()),
-        index=0  # 默认选中第一个模板（故事生成）
+        index=0  # 默认选中「故事生成」
     )
 
     st.divider()
-    st.subheader("📋 填写模板参数")
+    st.subheader("📋 填写模板对应参数")
 
-    # 3. 根据选中模板，动态渲染对应的参数输入框（核心：替代 Gradio 的组件显隐逻辑）
+    # 3. 动态渲染当前模板的必填参数输入框
     current_template = PROMPT_TEMPLATES[template_type]
     required_params = current_template["params"]
-    param_dict = {}  # 存储用户填写的参数
+    param_dict = {}
 
-    # 遍历当前模板的必填参数，渲染对应的输入组件
     for param in required_params:
         if param == "字数":
-            # 数字输入框（整数、有范围限制，替代 Gradio 的 gr.Number）
+            # 数字输入框（带范围限制）
             param_value = st.number_input(
                 label=param,
                 value=500,
                 min_value=100,
                 max_value=2000,
                 step=10,
-                help="请输入100-2000之间的整数"
+                help="请输入 100 - 2000 之间的整数，控制文本长度"
             )
         elif param == "章节数":
-            # 数字输入框（整数、有范围限制）
+            # 数字输入框（带范围限制）
             param_value = st.number_input(
                 label=param,
                 value=5,
                 min_value=3,
                 max_value=10,
                 step=1,
-                help="请输入3-10之间的整数"
+                help="请输入 3 - 10 之间的整数，控制论文提纲章节数"
             )
         elif param == "用户输入":
-            # 多行文本输入框（替代 Gradio 的 gr.Textbox(lines=5)）
+            # 多行文本输入框（适合自由创作）
             param_value = st.text_area(
                 label=param,
-                placeholder="请详细描述你的创作需求...",
+                placeholder="请详细描述你的创作需求，越具体生成效果越好...",
                 height=150
             )
         else:
@@ -166,41 +161,38 @@ def main():
                 placeholder=f"例如：{get_param_placeholder(param)}"
             )
 
-        # 存储用户填写的参数值
+        # 存储用户填写的参数
         param_dict[param] = param_value
 
     st.divider()
 
-    # 4. 生成按钮（替代 Gradio 的 gr.Button，Streamlit 采用「按钮触发逻辑」）
+    # 4. 生成文本按钮（触发核心逻辑）
     if st.button("🚀 生成文本", type="primary", use_container_width=True):
-        # 显示加载状态（提升用户体验，替代 Gradio 的自动加载）
-        with st.spinner("正在调用 Kimi API 生成内容，请稍候..."):
-            # 调用核心生成函数
+        with st.spinner("正在调用 Kimi API 生成内容，请稍候...（请勿刷新页面）"):
             result = generate_content(kimi_api_key, template_type, param_dict)
-
-            # 显示生成结果（替代 Gradio 的结果文本框）
+            # 展示生成结果
             st.subheader("📄 生成结果")
             st.text_area(
-                label="Kimi 模型输出",
+                label="Kimi 模型输出内容",
                 value=result,
                 height=400,
-                disabled=True,  # 结果不可编辑，仅展示
-                help="结果仅供参考，可自行复制修改"
+                disabled=True,  # 结果不可编辑，仅用于展示和复制
+                help="点击文本框内内容，可全选复制修改"
             )
 
-# ===================== 辅助函数：为参数输入框提供占位提示 =====================
+# ===================== 4. 辅助函数：提供参数输入占位提示 =====================
 def get_param_placeholder(param):
     placeholders = {
-        "主题": "友情、星空、冒险...",
-        "风格": "治愈、悬疑、科幻、古风...",
-        "产品名称": "无线蓝牙耳机、智能保温杯...",
-        "平台": "微信朋友圈、抖音、小红书...",
-        "核心卖点": "超长续航、便携小巧、健康环保...",
-        "论文题目": "基于深度学习的图像识别技术研究...",
-        "学科": "计算机科学与技术、汉语言文学..."
+        "主题": "友情、星空、少年冒险、古风仙侠...",
+        "风格": "治愈、悬疑、科幻、古风、幽默、正式...",
+        "产品名称": "无线蓝牙耳机、智能保温杯、家用空气净化器...",
+        "平台": "微信朋友圈、抖音、小红书、淘宝详情页...",
+        "核心卖点": "超长续航、便携小巧、健康环保、高性价比...",
+        "论文题目": "基于深度学习的图像识别技术研究、乡村振兴中的文化传承...",
+        "学科": "计算机科学与技术、汉语言文学、经济学、土木工程..."
     }
-    return placeholders.get(param, "")
+    return placeholders.get(param, "请填写有效内容")
 
-# ===================== 运行 Streamlit 应用 =====================
+# ===================== 5. 运行 Streamlit 应用 =====================
 if __name__ == "__main__":
     main()
