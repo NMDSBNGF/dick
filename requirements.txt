@@ -1,2 +1,3 @@
-openai  # 必选，对应代码中的模块
-streamlit  # 必选，Streamlit运行依赖
+streamlit
+openai
+
