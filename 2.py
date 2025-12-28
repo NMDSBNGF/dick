@@ -1,7 +1,7 @@
-import gradio as gr
+import streamlit as st
 from openai import OpenAI
 
-# ===================== 1. 自定义配置（移除代理，适配Kimi国内API） =====================
+# ===================== 1. 自定义配置（保留原Kimi API配置，无改动） =====================
 # Kimi API 配置（Kimi为国内接口，无需代理）
 KIMI_BASE_URL = "https://api.moonshot.cn/v1"
 KIMI_MODEL = "moonshot-v1-8k"  # 可选moonshot-v1-32k/moonshot-v1-128k
@@ -26,8 +26,8 @@ PROMPT_TEMPLATES = {
 }
 
 
-# ===================== 2. AI 生成核心函数（移除代理，简化客户端） =====================
-def generate_content(kimi_api_key, template_type, current_param_names, *all_inputs):
+# ===================== 2. AI 生成核心函数（适配Streamlit，保留原校验和调用逻辑） =====================
+def generate_content(kimi_api_key, template_type, param_dict):
     # 验证Kimi密钥
     if not kimi_api_key or not str(kimi_api_key).strip().startswith("sk-"):
         return "❌ 请输入有效的 Kimi API 密钥（以 sk- 开头）！"
@@ -49,17 +49,7 @@ def generate_content(kimi_api_key, template_type, current_param_names, *all_inpu
     except KeyError:
         return "❌ 模板类型错误，无此生成模板！"
 
-    # 构建参数字典
-    param_dict = {}
-    for i, param_name in enumerate(current_param_names):
-        if param_name in required_params and i < len(all_inputs):
-            input_value = all_inputs[i]
-            if isinstance(input_value, str):
-                param_dict[param_name] = input_value.strip()
-            else:
-                param_dict[param_name] = input_value
-
-    # 校验参数
+    # 校验参数（保留原有的数值/非空校验逻辑）
     invalid_or_missing = []
     for param in required_params:
         value = param_dict.get(param, "")
@@ -97,114 +87,117 @@ def generate_content(kimi_api_key, template_type, current_param_names, *all_inpu
             return f"❌ 生成失败：{error_info}"
 
 
-# ===================== 3. 参数组件（保留原逻辑） =====================
-all_params = {
-    "主题": gr.Textbox(label="主题", placeholder="例如：友情、星空、冒险...", visible=False),
-    "风格": gr.Textbox(label="风格", placeholder="例如：治愈、悬疑、科幻、古风...", visible=False),
-    "字数": gr.Number(label="字数", value=500, precision=0, minimum=100, maximum=2000, visible=False),
-    "产品名称": gr.Textbox(label="产品名称", placeholder="例如：无线蓝牙耳机、智能保温杯...", visible=False),
-    "平台": gr.Textbox(label="推广平台", placeholder="例如：微信朋友圈、抖音、小红书...", visible=False),
-    "核心卖点": gr.Textbox(label="核心卖点", placeholder="例如：超长续航、便携小巧、健康环保...", visible=False),
-    "论文题目": gr.Textbox(label="论文题目", placeholder="例如：基于深度学习的图像识别技术研究...", visible=False),
-    "学科": gr.Textbox(label="学科领域", placeholder="例如：计算机科学与技术、汉语言文学...", visible=False),
-    "章节数": gr.Number(label="章节数", value=5, precision=0, minimum=3, maximum=10, visible=False),
-    "用户输入": gr.Textbox(label="自由创作输入", lines=5, placeholder="请详细描述你的创作需求...", visible=False)
-}
-param_components = list(all_params.values())
-param_names_list = list(all_params.keys())
+# ===================== 3. Streamlit 界面搭建（核心改写部分） =====================
+def main():
+    # 页面配置（Streamlit 专属，设置标题和图标）
+    st.set_page_config(
+        page_title="我的 AI 文字生成工具（Kimi版/Streamlit）",
+        page_icon="📝",
+        layout="wide"
+    )
 
-# ===================== 4. 界面搭建（保留原布局） =====================
-with gr.Blocks(title="我的 AI 文字生成工具（Kimi版）", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 📝 我的 AI 文字生成工具（Kimi版）")
-    gr.Markdown("### 操作步骤：1. 输入Kimi API密钥 → 2. 选择模板 → 3. 填写参数 → 4. 生成文本")
-    gr.Markdown(f"### 当前使用 Kimi {KIMI_MODEL} 模型（国内接口，无需代理）")
-    gr.Markdown("---")
+    # 页面标题和说明（替代 Gradio 的 gr.Markdown）
+    st.title("📝 我的 AI 文字生成工具（Kimi版/Streamlit）")
+    st.subheader("操作步骤：1. 输入Kimi API密钥 → 2. 选择模板 → 3. 填写参数 → 4. 生成文本")
+    st.info(f"当前使用 Kimi {KIMI_MODEL} 模型（国内接口，无需代理）")
+    st.divider()
 
-    # Kimi密钥输入
-    kimi_api_key = gr.Textbox(
+    # 1. Kimi API 密钥输入（替代 Gradio 的 gr.Textbox，密码类型）
+    kimi_api_key = st.text_input(
         label="Kimi API 密钥",
         type="password",
         placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-        max_lines=1,
-        info="密钥从Kimi（月之暗面）官网获取，请勿泄露"
+        help="密钥从Kimi（月之暗面）官网获取，请勿泄露"
     )
 
-    # 模板选择
-    template_type = gr.Dropdown(
+    # 2. 模板选择下拉框（替代 Gradio 的 gr.Dropdown）
+    template_type = st.selectbox(
         label="选择生成模板",
-        choices=list(PROMPT_TEMPLATES.keys()),
-        value="故事生成",
-        interactive=True
+        options=list(PROMPT_TEMPLATES.keys()),
+        index=0  # 默认选中第一个模板（故事生成）
     )
 
-    current_param_names = gr.State([])
+    st.divider()
+    st.subheader("📋 填写模板参数")
 
-    # 参数容器
-    param_column = gr.Column(spacing="md")
-    with param_column:
-        for comp in param_components:
-            comp.render()
+    # 3. 根据选中模板，动态渲染对应的参数输入框（核心：替代 Gradio 的组件显隐逻辑）
+    current_template = PROMPT_TEMPLATES[template_type]
+    required_params = current_template["params"]
+    param_dict = {}  # 存储用户填写的参数
 
-    # 生成按钮和结果
-    generate_btn = gr.Button("🚀 生成文本", variant="primary", size="lg")
-    result = gr.Textbox(
-        label="生成结果（Kimi模型输出）",
-        lines=15,
-        placeholder="生成的内容将显示在这里...",
-        info="结果仅供参考，可自行修改"
-    )
+    # 遍历当前模板的必填参数，渲染对应的输入组件
+    for param in required_params:
+        if param == "字数":
+            # 数字输入框（整数、有范围限制，替代 Gradio 的 gr.Number）
+            param_value = st.number_input(
+                label=param,
+                value=500,
+                min_value=100,
+                max_value=2000,
+                step=10,
+                help="请输入100-2000之间的整数"
+            )
+        elif param == "章节数":
+            # 数字输入框（整数、有范围限制）
+            param_value = st.number_input(
+                label=param,
+                value=5,
+                min_value=3,
+                max_value=10,
+                step=1,
+                help="请输入3-10之间的整数"
+            )
+        elif param == "用户输入":
+            # 多行文本输入框（替代 Gradio 的 gr.Textbox(lines=5)）
+            param_value = st.text_area(
+                label=param,
+                placeholder="请详细描述你的创作需求...",
+                height=150
+            )
+        else:
+            # 普通单行文本输入框
+            param_value = st.text_input(
+                label=param,
+                placeholder=f"例如：{get_param_placeholder(param)}"
+            )
+
+        # 存储用户填写的参数值
+        param_dict[param] = param_value
+
+    st.divider()
+
+    # 4. 生成按钮（替代 Gradio 的 gr.Button，Streamlit 采用「按钮触发逻辑」）
+    if st.button("🚀 生成文本", type="primary", use_container_width=True):
+        # 显示加载状态（提升用户体验，替代 Gradio 的自动加载）
+        with st.spinner("正在调用 Kimi API 生成内容，请稍候..."):
+            # 调用核心生成函数
+            result = generate_content(kimi_api_key, template_type, param_dict)
+
+            # 显示生成结果（替代 Gradio 的结果文本框）
+            st.subheader("📄 生成结果")
+            st.text_area(
+                label="Kimi 模型输出",
+                value=result,
+                height=400,
+                disabled=True,  # 结果不可编辑，仅展示
+                help="结果仅供参考，可自行复制修改"
+            )
 
 
-    # 模板切换事件
-    def update_param_visibility(template_type):
-        needed_params = PROMPT_TEMPLATES[template_type]["params"]
-        updates = []
-        for name, comp in all_params.items():
-            if name in needed_params:
-                updates.append(gr.update(visible=True))
-            else:
-                updates.append(gr.update(visible=False, value=comp.value if isinstance(comp, gr.Number) else ""))
-        return updates + [needed_params]
+# ===================== 辅助函数：为参数输入框提供占位提示 =====================
+def get_param_placeholder(param):
+    placeholders = {
+        "主题": "友情、星空、冒险...",
+        "风格": "治愈、悬疑、科幻、古风...",
+        "产品名称": "无线蓝牙耳机、智能保温杯...",
+        "平台": "微信朋友圈、抖音、小红书...",
+        "核心卖点": "超长续航、便携小巧、健康环保...",
+        "论文题目": "基于深度学习的图像识别技术研究...",
+        "学科": "计算机科学与技术、汉语言文学..."
+    }
+    return placeholders.get(param, "")
 
 
-    template_type.change(
-        fn=update_param_visibility,
-        inputs=template_type,
-        outputs=param_components + [current_param_names]
-    )
-
-    # 生成按钮事件
-    generate_btn.click(
-        fn=generate_content,
-        inputs=[kimi_api_key, template_type, current_param_names] + param_components,
-        outputs=result
-    )
-
-
-    # 初始化默认模板
-    def init_default():
-        needed_params = PROMPT_TEMPLATES["故事生成"]["params"]
-        updates = []
-        for name, comp in all_params.items():
-            if name in needed_params:
-                updates.append(gr.update(visible=True))
-            else:
-                updates.append(gr.update(visible=False, value=comp.value if isinstance(comp, gr.Number) else ""))
-        return updates + [needed_params]
-
-
-    demo.load(
-        fn=init_default,
-        inputs=None,
-        outputs=param_components + [current_param_names]
-    )
-
-# ===================== 运行工具（端口7861，避免占用） =====================
+# ===================== 运行 Streamlit 应用 =====================
 if __name__ == "__main__":
-    demo.launch(
-        share=False,
-        server_port=7861,
-        show_error=True,
-        inbrowser=True,
-        server_name="0.0.0.0"
-    )
+    main()
